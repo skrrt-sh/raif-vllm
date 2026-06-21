@@ -36,8 +36,8 @@ vllm = ["vllm>=0.19,<0.20"]
 raif = "raif_vllm.plugin:register"
 
 [project.urls]
-Repository = "https://github.com/skrrt-sh/raif-lora"
-Homepage = "https://github.com/skrrt-sh/raif-lora"
+Repository = "https://github.com/skrrt-sh/raif-vllm"
+Homepage = "https://github.com/skrrt-sh/raif-vllm"
 
 [build-system]
 requires = ["hatchling"]

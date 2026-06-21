@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 # RAIF single-plugin smoke on a CUDA-12 GPU box (vLLM 0.19, entry-point model).
 #
-# Runs ON the GPU box. Assumes the two working trees are already present (rsync'd)
-# as siblings under $WORKROOT (NOT cloned — the plugin is uncommitted):
-#   $WORKROOT/raif-standard/packages/py   (the `raif` format lib)
-#   $WORKROOT/raif-lora/packages/vllm      (the `raif-vllm` plugin)
+# Runs ON the GPU box, from a checkout of this repo. Installs vLLM 0.19 + the
+# plugin (which pulls raif-format>=0.6 from PyPI), serves the base model + the
+# RAIF LoRA with `VLLM_PLUGINS=raif`, waits for health, then runs the e2e client
+# across all five OpenAI paths.
 #
-# Unlike the old serve_test.sh (vLLM 0.11 + --tool-parser-plugin FILE), this uses
-# the installable plugin + the general_plugins entry point: `pip install raif-vllm`
-# then `VLLM_PLUGINS=raif`. v0.19.0 is the LAST CUDA-12 vLLM and carries every hook
-# the plugin needs (reasoning-parser content decode + the render_chat inject seam).
+# v0.19.0 is the LAST CUDA-12 vLLM and carries every hook the plugin needs
+# (reasoning-parser content decode + the render_chat inject seam).
 set -euo pipefail
 
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKROOT="${WORKROOT:-/workspace/raif}"
 BASE="${BASE:-unsloth/Llama-3.2-3B-Instruct}"
 ADAPTER="${ADAPTER:-skrrt-sh/raif-llama-3.2-3b-lora}"
@@ -19,10 +18,8 @@ PORT="${PORT:-8000}"
 PY="${PY:-python3.12}"
 VLLM_PIN="${VLLM_PIN:-vllm==0.19.0}"
 
-LORA_DIR="$WORKROOT/raif-lora"
-STD_DIR="$WORKROOT/raif-standard"
-PLUGIN_PKG="$LORA_DIR/packages/vllm"
-CHAT_TEMPLATE="$LORA_DIR/cuda/cloud/raif_llama32.jinja"
+CHAT_TEMPLATE="$REPO_DIR/chat_templates/raif_llama32.jinja"
+SMOKE="$REPO_DIR/examples/smoke_plugin.py"
 
 log() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 die() { printf '\n\033[1;31mFATAL: %s\033[0m\n' "$*" >&2; exit 1; }
@@ -32,21 +29,19 @@ command -v nvidia-smi >/dev/null || die "no nvidia-smi — not a CUDA GPU box"
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
 command -v "$PY" >/dev/null || die "interpreter '$PY' not found (set PY=)"
 "$PY" --version
-[ -d "$PLUGIN_PKG" ] || die "plugin package not found at $PLUGIN_PKG (rsync the tree first)"
 [ -f "$CHAT_TEMPLATE" ] || die "chat template not found at $CHAT_TEMPLATE"
 
+mkdir -p "$WORKROOT"
 export HF_HOME="${HF_HOME:-$WORKROOT/.hf-cache}"
 mkdir -p "$HF_HOME"
 
-log "1. Install vLLM 0.19 (CUDA-12) + the raif packages (editable) + clients"
+log "1. Install vLLM 0.19 (CUDA-12) + this plugin (editable; pulls raif-format from PyPI) + clients"
 "$PY" -c 'import vllm' 2>/dev/null || "$PY" -m pip install -q "$VLLM_PIN"
 # vLLM's prometheus instrumentator crashes on starlette 1.x ("'_IncludedRouter'
 # object has no attribute 'path'") -> every /health returns 500 and the server
 # never becomes healthy. Pin fastapi 0.115.6, which constrains starlette <0.42
-# (routes still carry `.path`). Same pin the 0.11 runbook uses.
-"$PY" -m pip install -q openai "fastapi==0.115.6" \
-  -e "$STD_DIR/packages/py" \
-  -e "$PLUGIN_PKG"
+# (routes still carry `.path`).
+"$PY" -m pip install -q openai "fastapi==0.115.6" -e "$REPO_DIR"
 "$PY" -c 'import vllm, raif, raif_vllm; print("vllm", vllm.__version__, "| raif", raif.__version__, "| raif_vllm OK")'
 
 log "2. Serve $BASE + LoRA '$ADAPTER' with the raif plugin (VLLM_PLUGINS=raif, port $PORT)"
@@ -75,9 +70,9 @@ log "4. Confirm the plugin actually loaded (render patch + parser registration)"
 grep -E "RAIF plugin:|RAIF render patch|no pre-template inject seam" "$WORKROOT/vllm-serve.log" || \
   printf '\033[1;33mWARN: no RAIF plugin log lines found — entry point may not have run.\033[0m\n'
 
-log "5. Smoke: plain chat + tools + response_format (+ token saving)"
+log "5. Smoke: plain chat + tools + response_format + json_object (+ token saving)"
 set +e
-"$PY" "$LORA_DIR/examples/smoke_plugin.py" --base-url "http://localhost:$PORT/v1" --model raif
+"$PY" "$SMOKE" --base-url "http://localhost:$PORT/v1" --model raif
 SMOKE_RC=$?
 set -e
 

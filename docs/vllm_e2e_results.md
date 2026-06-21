@@ -14,7 +14,7 @@ vLLM 0.19 (the `general_plugins` entry-point model — tools, `response_format`,
 Served `unsloth/Llama-3.2-3B-Instruct` + LoRA `skrrt-sh/raif-llama-3.2-3b-lora`
 with `VLLM_PLUGINS=raif --reasoning-parser raif --enable-auto-tool-choice
 --tool-call-parser raif` and the tools-ignoring `--chat-template`
-(`cuda/cloud/serve_smoke_v019.sh`), then drove all five paths through a plain
+(`scripts/serve_smoke.sh`), then drove all five paths through a plain
 OpenAI client (`examples/smoke_plugin.py`):
 
 | Path | Result | Notes |
@@ -55,7 +55,8 @@ endpoint and exercised the tool-call path through the `raif` parser plugin.
 - **Model:** base `unsloth/Llama-3.2-3B-Instruct` + LoRA
   `skrrt-sh/raif-llama-3.2-3b-lora` (rank 32).
 - **Serving:** vLLM OpenAI server with the `raif` `ToolParser` plugin
-  (`src/raif_vllm.py`), `--enable-auto-tool-choice`, and the LoRA loaded as an
+  (`src/raif_vllm.py` — the pre-package file in the raif-lora repo, before this
+  plugin was split out), `--enable-auto-tool-choice`, and the LoRA loaded as an
   adapter.
 - **Decoder:** `raif.decode` from the `raif-format` package (RAIF-G → arguments dict).
 - **Client probe:** a chat-completions request with `tools=[get_weather]` and
@@ -150,7 +151,8 @@ rendered the OpenAI tool-definition JSON into the prompt — which isolates the 
 
 The gap is a **prompt-format mismatch**, not a parser or decoder defect.
 
-- **Training format (bare cue).** Per `docs/fine_tune_plan.md`, each training
+- **Training format (bare cue).** Per `docs/fine_tune_plan.md` (in the
+  raif-standard repo, https://github.com/skrrt-sh/raif-standard), each training
   example's user turn is `"<request>\n\n<schema>\n<declaration>\n</schema>"`
   (§3.1), using the compact RAIF-native schema grammar (§3.2:
   `name:s` / `name:n` / `name:b` / `name:t`, `name[]:s`, `name.sub:b`, `name:s?`).
@@ -190,19 +192,20 @@ See `docs/vllm_tool_calling.md` for the full template and serving wiring.
 
 ## Reproduce
 
-Current flow (vLLM 0.19, entry-point plugin) — `cuda/cloud/serve_smoke_v019.sh`
+Current flow (vLLM 0.19, entry-point plugin) — `scripts/serve_smoke.sh`
 encodes all of this; see `docs/runpod_testing.md` for the RunPod runbook. In
-short: rsync both working trees as siblings under `$WORKROOT`, then on the box:
+short: get this repo onto the box (clone it, or rsync this one tree) under
+`$WORKROOT`, then on the box:
 
 ```bash
-WORKROOT=/workspace/raif bash raif-lora/cuda/cloud/serve_smoke_v019.sh
+WORKROOT=/workspace/raif bash scripts/serve_smoke.sh
 ```
 
-It installs `vllm==0.19.0` + `fastapi==0.115.6`, editable-installs `raif-format`
-(from `raif-standard/packages/py`) and `raif-vllm` (from `raif-lora/packages/vllm`),
+It installs `vllm==0.19.0` + `fastapi==0.115.6`, editable-installs this repo
+(`pip install -e .`, which pulls `raif-format>=0.6` from PyPI),
 serves base + LoRA with `VLLM_PLUGINS=raif --reasoning-parser raif
 --enable-auto-tool-choice --tool-call-parser raif` and the tools-ignoring
-`--chat-template cuda/cloud/raif_llama32.jinja`, then runs
+`--chat-template chat_templates/raif_llama32.jinja`, then runs
 `examples/smoke_plugin.py` across all five paths.
 
 The original 0.11 run pinned `vllm==0.11.0` + `transformers>=4.56,<5` and used the

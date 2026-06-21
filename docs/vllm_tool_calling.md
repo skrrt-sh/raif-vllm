@@ -9,7 +9,7 @@ The model (`unsloth/Llama-3.2-3B-Instruct` + LoRA
 `skrrt-sh/raif-llama-3.2-3b-lora`, rank 32) does not emit OpenAI tool-call JSON.
 It emits **RAIF-G** — RAIF's compact serialization. The `RaifToolParser`
 (the tool-call path of the installable `raif-vllm` plugin —
-`packages/vllm/raif_vllm/tool_parser.py`, registered under the name `raif`)
+`raif_vllm/tool_parser.py`, registered under the name `raif`)
 converts that to OpenAI `tool_calls` at the request and response boundaries.
 End to end:
 
@@ -29,7 +29,7 @@ End to end:
 The decode/encode logic is pure (no vLLM import) and unit-tested; the shim only
 wires vLLM types to it. Package tests: 57 passed, 3 skipped (the 3 skips are
 `importorskip` shims that run only where vLLM is installed). The tool path was
-first proven against real vLLM 0.11 types; the live e2e (`serve_smoke_v019.sh`)
+first proven against real vLLM 0.11 types; the live e2e (`scripts/serve_smoke.sh`)
 now runs on vLLM 0.19.
 
 ## The prompt contract
@@ -45,7 +45,9 @@ compact schema cue, nothing else:
 </schema>
 ```
 
-Citations from `raif-standard/docs/fine_tune_plan.md`:
+Citations from `docs/fine_tune_plan.md` (it lives in the raif-standard repo,
+https://github.com/skrrt-sh/raif-standard, and documents the LoRA's prompt
+contract):
 
 - **§3.1** — each training example's user content is
   `"<request_template>\n\n<schema>\n<schema_declaration>\n</schema>"`.
@@ -157,14 +159,14 @@ Install the plugin (and the `raif-format` lib it depends on), then activate it
 with `VLLM_PLUGINS=raif`:
 
 ```sh
-# editable from the two sibling working trees (or, once released: pip install raif-format raif-vllm)
-python3.12 -m pip install -e raif-standard/packages/py -e raif-lora/packages/vllm
+# editable install of this repo; pulls raif-format>=0.6 from PyPI automatically
+python3.12 -m pip install -e .
 
 VLLM_PLUGINS=raif python3.12 -m vllm.entrypoints.openai.api_server \
   --model unsloth/Llama-3.2-3B-Instruct \
   --enable-lora --lora-modules raif=skrrt-sh/raif-llama-3.2-3b-lora \
   --max-lora-rank 32 --max-model-len 8192 --enforce-eager \
-  --chat-template /path/to/raif-lora/cuda/cloud/raif_llama32.jinja \
+  --chat-template /path/to/chat_templates/raif_llama32.jinja \
   --reasoning-parser raif \
   --enable-auto-tool-choice --tool-call-parser raif
 ```
@@ -175,7 +177,7 @@ raif` selects the tool path; `--reasoning-parser raif` lights up the
 `response_format` decode path. The `--chat-template raif_llama32.jinja` is still
 the load-bearing flag for tool parity — it is what makes the served prompt match
 training (renders messages only, ignores the `tools` variable). The end-to-end
-driver is `cuda/cloud/serve_smoke_v019.sh`.
+driver is `scripts/serve_smoke.sh`.
 
 ### Version pins (RunPod A40, driver CUDA 12.9)
 
@@ -193,5 +195,6 @@ driver is `cuda/cloud/serve_smoke_v019.sh`.
   `response_format` is **not** decoded — see `vllm_e2e_results.md` for the root
   cause (the `is_reasoning_end` gate) and the known-limitation note. Use
   non-streaming `response_format`.
-- The MLX serving path (`raif-lora/examples/serve.sh`) is separate from this vLLM
-  path and out of scope here.
+- The MLX serving path (`examples/serve.sh` in the raif-lora repo,
+  https://github.com/skrrt-sh/raif-lora) is separate from this vLLM path and out
+  of scope here.

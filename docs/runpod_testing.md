@@ -1,7 +1,7 @@
 # RunPod GPU testing runbook (vLLM e2e)
 
 vLLM doesn't run on Apple Silicon, so the plugin end-to-end
-(`cuda/cloud/serve_smoke_v019.sh`, all three OpenAI paths) runs on a CUDA GPU.
+(`scripts/serve_smoke.sh`, all three OpenAI paths) runs on a CUDA GPU.
 This captures the gotchas so we don't rediscover them each time. See also
 `vllm_tool_calling.md` (the tool-path fix) and `vllm_e2e_results.md` (results).
 
@@ -47,7 +47,7 @@ runpodctl pod create --name raif-vllm --gpu-id "NVIDIA A40" --gpu-count 1 \
   ```bash
   tmux new-session -d -s smoke
   tmux send-keys -t smoke 'cd /workspace/raif && WORKROOT=/workspace/raif \
-    bash raif-lora/cuda/cloud/serve_smoke_v019.sh > /workspace/smoke.log 2>&1' Enter
+    bash scripts/serve_smoke.sh > /workspace/smoke.log 2>&1' Enter
   ```
 - Tail `run.log` over the multiplexed connection and watch for a **terminal marker**
   (`OVERALL`, `EXITCODE=`, `FATAL`) — not just the success line, or a crash looks like "still running".
@@ -56,7 +56,7 @@ runpodctl pod create --name raif-vllm --gpu-id "NVIDIA A40" --gpu-count 1 \
 
 The single-plugin flow targets **vLLM 0.19** (the last CUDA-12 vLLM, which carries the
 reasoning-parser decode + `render_chat` inject hooks the plugin needs).
-`serve_smoke_v019.sh` already encodes these pins; know them so failures are recognisable:
+`scripts/serve_smoke.sh` already encodes these pins; know them so failures are recognisable:
 
 | Pin | Why |
 |---|---|
@@ -66,24 +66,25 @@ reasoning-parser decode + `render_chat` inject hooks the plugin needs).
 
 ## 5. Run the e2e
 
-`serve_smoke_v019.sh` expects the two working trees already present as siblings under
-`$WORKROOT` (it does **not** clone — the plugin lives in `raif-lora/packages/vllm` and the
-`raif` format lib with `schema_bridge`/`stream` in `raif-standard/packages/py`). rsync the
-needed subtrees, then run it in tmux:
+`scripts/serve_smoke.sh` is self-contained — it just needs **this** repo present under
+`$WORKROOT` (it does **not** clone). `raif-format` is pulled from PyPI by the editable
+install, so there is no second tree to stage. Get this one tree onto the box — clone it
+there, or rsync it from the laptop — then run it in tmux:
 
 ```bash
-# from the laptop — rsync only what the smoke needs (skip .venv/.git/data)
+# either clone this repo on the pod:
+#   git clone https://github.com/skrrt-sh/raif-vllm /workspace/raif
+# or, from the laptop — rsync this one tree (skip .venv/.git/data):
 RSH='ssh -i ~/.runpod/ssh/runpodctl-ssh-key -o StrictHostKeyChecking=no -p <port>'
-rsync -az --no-owner --no-group -e "$RSH" raif-standard/packages/py  root@<ip>:/workspace/raif/raif-standard/packages/
-rsync -az --no-owner --no-group -e "$RSH" raif-lora/packages/vllm    root@<ip>:/workspace/raif/raif-lora/packages/
-rsync -az --no-owner --no-group -e "$RSH" raif-lora/cuda/cloud/      root@<ip>:/workspace/raif/raif-lora/cuda/cloud/
-rsync -az --no-owner --no-group -e "$RSH" raif-lora/examples/smoke_plugin.py root@<ip>:/workspace/raif/raif-lora/examples/
+rsync -az --no-owner --no-group --exclude .venv --exclude .git --exclude data \
+  -e "$RSH" ./  root@<ip>:/workspace/raif/
 
 # on the pod
-WORKROOT=/workspace/raif bash raif-lora/cuda/cloud/serve_smoke_v019.sh
+WORKROOT=/workspace/raif bash scripts/serve_smoke.sh
 ```
 
-- It installs `vllm==0.19.0` + `fastapi==0.115.6`, editable-installs both `raif` packages,
+- It installs `vllm==0.19.0` + `fastapi==0.115.6`, editable-installs this repo
+  (`pip install -e .`, which pulls `raif-format>=0.6` from PyPI),
   serves base + LoRA with `VLLM_PLUGINS=raif --reasoning-parser raif --tool-call-parser raif`
   and the `--chat-template`, then runs `examples/smoke_plugin.py` across all five paths.
 - `--enforce-eager` + `--max-model-len 8192` cut startup time.

@@ -12,8 +12,8 @@ decodes it to JSON at the request/response boundary.
 automatically):
 
 ```sh
-pip install "raif-vllm @ git+https://github.com/skrrt-sh/raif-lora.git#subdirectory=packages/vllm"
-# or, from a checkout:  pip install -e packages/vllm
+pip install "raif-vllm @ git+https://github.com/skrrt-sh/raif-vllm.git"
+# or, from a checkout:  pip install -e .
 ```
 
 vLLM itself is provided by the serving host (it pins CUDA/torch); target
@@ -38,7 +38,7 @@ VLLM_PLUGINS=raif vllm serve unsloth/Llama-3.2-3B-Instruct \
 - `--tool-call-parser raif` decodes the tools path into `tool_calls`;
   `--reasoning-parser raif` decodes the `response_format` path into
   `message.content`.
-- `--chat-template raif_llama32.jinja` (in `cuda/cloud/`) is load-bearing: it
+- `--chat-template raif_llama32.jinja` (in `chat_templates/`) is load-bearing: it
   renders messages only and ignores the `tools` variable, so the served prompt
   matches training. Without it the LoRA echoes the verbose OpenAI tool-def JSON.
 
@@ -72,10 +72,11 @@ RAIF-G. (vLLM's streaming seam passes the parser no schema, and the shared
 `is_reasoning_end` flag must stay `True` so the *tools* streaming path keeps
 working.) **Use non-streaming `response_format` for structured output** — it
 decodes fully. Tool-call streaming is unaffected. See
-[`docs/vllm_e2e_results.md`](../../docs/vllm_e2e_results.md).
+[`docs/vllm_e2e_results.md`](docs/vllm_e2e_results.md).
 
 ## More
 
-- End-to-end GPU smoke: `cuda/cloud/serve_smoke_v019.sh` + `examples/smoke_plugin.py`.
-- Serving guide + the chat-template fix: `docs/vllm_tool_calling.md`.
-- RunPod runbook: `docs/runpod_testing.md`.
+- End-to-end GPU smoke: [`scripts/serve_smoke.sh`](scripts/serve_smoke.sh) + [`examples/smoke_plugin.py`](examples/smoke_plugin.py).
+- Serving guide + the chat-template fix: [`docs/vllm_tool_calling.md`](docs/vllm_tool_calling.md).
+- RunPod runbook: [`docs/runpod_testing.md`](docs/runpod_testing.md).
+- The model: the [`skrrt-sh/raif-llama-3.2-3b-lora`](https://huggingface.co/skrrt-sh/raif-llama-3.2-3b-lora) adapter, trained in [`skrrt-sh/raif-lora`](https://github.com/skrrt-sh/raif-lora). The codec: [`raif-format`](https://github.com/skrrt-sh/raif-standard).
