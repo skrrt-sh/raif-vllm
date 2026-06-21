@@ -1,9 +1,31 @@
-# raif-vllm
+<p align="center">
+  <img src="assets/banner.jpg" alt="RAIF" width="640">
+</p>
 
-One vLLM plugin for transparent RAIF token savings. Install it and existing
-OpenAI clients get RAIF on `tools` and `response_format` — **no proxy, no client
-changes, no vLLM fork**. The fine-tuned model emits compact RAIF-G; the plugin
-decodes it to JSON at the request/response boundary.
+<h1 align="center">raif-vllm</h1>
+
+<p align="center"><strong>One vLLM plugin for transparent RAIF token savings</strong></p>
+
+<p align="center">
+  Install it and existing OpenAI clients get <a href="https://github.com/skrrt-sh/raif-standard">RAIF</a> on<br>
+  <code>tools</code> and <code>response_format</code> — no proxy, no client changes, no vLLM fork.
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
+  <a href="https://pypi.org/project/raif-vllm/"><img src="https://img.shields.io/pypi/v/raif-vllm?label=PyPI&color=3775a9" alt="raif-vllm on PyPI"></a>
+  <img src="https://img.shields.io/badge/vLLM-0.19.x-ff6f00" alt="vLLM 0.19.x">
+  <a href="https://huggingface.co/skrrt-sh/raif-llama-3.2-3b-lora"><img src="https://img.shields.io/badge/model-Hugging%20Face-ffb000" alt="Model on Hugging Face"></a>
+</p>
+
+---
+
+A vLLM endpoint normally speaks JSON. This plugin makes it speak
+[RAIF](https://github.com/skrrt-sh/raif-standard) — the ~10%-lighter, self-repairing
+wire format — **without any client changes**. The fine-tuned model emits compact
+RAIF-G; the plugin decodes it back to JSON at the request/response boundary, so a
+stock OpenAI client gets RAIF on `tools` and `response_format` transparently. No
+proxy, no fork — one `pip install` and an entry point.
 
 ## Install
 
@@ -72,9 +94,42 @@ working.) **Use non-streaming `response_format` for structured output** — it
 decodes fully. Tool-call streaming is unaffected. See
 [`docs/vllm_e2e_results.md`](docs/vllm_e2e_results.md).
 
+## Verified end-to-end
+
+Smoked on an A40 (vLLM 0.19, base `unsloth/Llama-3.2-3B-Instruct` + the
+`skrrt-sh/raif-llama-3.2-3b-lora` adapter) across every OpenAI path a stock client
+uses — plain chat, `tools`, `response_format` (`json_schema` + `json_object`):
+
+| path | result |
+|---|---|
+| plain chat | **PASS** — passthrough, untouched |
+| `tools` | **PASS** — RAIF-G → JSON `tool_calls` |
+| `response_format` (`json_schema`) | **PASS** — decoded to JSON content, **−19%** tokens vs the equivalent JSON |
+| `response_format` (`json_object`) | **PASS** — schemaless decode |
+| `response_format` **streaming** | known limitation (raw RAIF-G — use non-streaming) |
+
+Reproduce with [`scripts/serve_smoke.sh`](scripts/serve_smoke.sh) +
+[`examples/smoke_plugin.py`](examples/smoke_plugin.py); full results in
+[`docs/vllm_e2e_results.md`](docs/vllm_e2e_results.md).
+
+## Project layout
+
+```
+raif_vllm/               the plugin: reasoning + tool parsers, render_chat inject hook
+chat_templates/          raif_llama32.jinja — tools-ignoring template (training parity)
+scripts/serve_smoke.sh   end-to-end GPU smoke (install → serve → all OpenAI paths)
+examples/smoke_plugin.py the e2e client (plain · tools · response_format · streaming)
+docs/                    serving guide, e2e results, RunPod runbook
+tests/                   unit tests for the parsers + inject hook
+```
+
 ## More
 
-- End-to-end GPU smoke: [`scripts/serve_smoke.sh`](scripts/serve_smoke.sh) + [`examples/smoke_plugin.py`](examples/smoke_plugin.py).
 - Serving guide + the chat-template fix: [`docs/vllm_tool_calling.md`](docs/vllm_tool_calling.md).
-- RunPod runbook: [`docs/runpod_testing.md`](docs/runpod_testing.md).
+- RunPod GPU runbook: [`docs/runpod_testing.md`](docs/runpod_testing.md).
 - The model: the [`skrrt-sh/raif-llama-3.2-3b-lora`](https://huggingface.co/skrrt-sh/raif-llama-3.2-3b-lora) adapter, trained in [`skrrt-sh/raif-lora`](https://github.com/skrrt-sh/raif-lora). The codec: [`raif-format`](https://github.com/skrrt-sh/raif-standard).
+
+## License
+
+[Apache-2.0](LICENSE). The trained adapter it serves is a derivative of Llama 3.2
+(the **Llama 3.2 Community License** applies — "Built with Llama").
