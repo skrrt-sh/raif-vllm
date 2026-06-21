@@ -42,6 +42,22 @@ def test_decode_arguments_fails_closed_on_truncated_leaf():
     assert decode_arguments("<raif>\ncity=Oslo\nlat") is None
 
 
+def test_decode_arguments_strips_qwen3_think():
+    # Qwen3 prepends an empty <think></think> before the RAIF-G tool args.
+    assert decode_arguments("<think></think>\ncity=Oslo\ndays=3") == {
+        "city": "Oslo",
+        "days": 3,
+    }
+
+
+def test_decode_arguments_strips_qwen3_bare_closer():
+    # Real Qwen3-4B tools output: bare </tool_call>…</think> before the args.
+    assert decode_arguments("</tool_call>\n\n</think>\n\ncity=Oslo\ndays=3") == {
+        "city": "Oslo",
+        "days": 3,
+    }
+
+
 def test_build_schema_block_wraps_declaration():
     assert build_schema_block(_WEATHER_TOOL) == "<schema>\ncity:s\n</schema>"
 

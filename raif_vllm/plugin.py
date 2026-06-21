@@ -31,15 +31,17 @@ import logging
 
 from .inject import prepare_chat_request
 
-# Prefer vLLM's logger factory so the registration markers below actually surface
-# in the server log under vLLM's logging config. A bare logging.getLogger() leaves
-# the "raif_vllm" logger inheriting root@WARNING, so these INFO lines were silently
-# dropped — the smoke script's plugin-load grep then warned even on a clean load.
-# Fall back to the stdlib logger when vLLM is absent, keeping the module import-safe.
+# Log under the **`vllm.` namespace** so the registration markers below actually
+# surface in the server log. vLLM attaches its stdout handler only to the `vllm`
+# logger (propagate=False); a sibling logger like `raif_vllm` parents to root,
+# which has no handler, so its INFO lines are silently dropped (the smoke script's
+# plugin-load grep then warned even on a clean load). `vllm.raif` is a child of
+# `vllm` and inherits that handler. Fall back to a stdlib logger when vLLM is
+# absent, keeping the module import-safe.
 try:
     from vllm.logger import init_logger
 
-    logger = init_logger("raif_vllm")
+    logger = init_logger("vllm.raif")
 except Exception:  # pragma: no cover - vLLM not installed / logger API drift
     logger = logging.getLogger("raif_vllm")
 

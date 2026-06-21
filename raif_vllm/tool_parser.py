@@ -21,6 +21,8 @@ from typing import Any
 from raif import decode
 from raif.schema_bridge import tool_to_schema
 
+from .structured import strip_reasoning_prefix
+
 # Closing mode markers the generation profile may emit to frame RAIF-G (ADR-0019).
 # Their presence signals the args block is complete and safe to decode+emit.
 _TERMINATORS = ("</raif>", "<|raif_end|>")
@@ -114,7 +116,7 @@ def decode_arguments(model_output: str, schema: Any | None = None) -> dict | Non
     output that still fails to parse yields None — fail closed rather than emit a
     malformed tool call.
     """
-    result = decode(model_output, schema)
+    result = decode(strip_reasoning_prefix(model_output), schema)
     return result["value"] if result["ok"] else None
 
 

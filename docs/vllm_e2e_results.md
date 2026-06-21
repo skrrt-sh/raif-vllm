@@ -3,6 +3,32 @@
 Status: **Single `raif-vllm` plugin verified on vLLM 0.19 (A40). 4/5 OpenAI paths
 PASS; streaming `response_format` is a documented known limitation.**
 
+## Multi-model: all three published adapters (vLLM 0.19, A40, raif-vllm 0.2.0)
+
+The plugin is model-agnostic. Verified end-to-end on an A40 against each published
+adapter, every non-streaming OpenAI path PASS (plain · `tools` · `response_format`
+`json_schema` + `json_object`); streaming `response_format` is the known limitation
+for all three. Reproduce with `MODEL=<name> bash scripts/serve_smoke.sh`.
+
+| model (base) | adapter | plain | tools | resp_fmt | resp_fmt token Δ on the 1-record probe |
+|---|---|---|---|---|---|
+| `llama-3b` (Llama-3.2-3B-Instruct) | raif-llama-3.2-3b-lora | PASS | PASS | PASS | 13 vs 16 JSON → **−19%** |
+| `qwen-4b` (Qwen3-4B-Instruct-2507) | raif-qwen3-4b-lora | PASS | PASS | PASS | 18 vs 16 JSON → +12% (larger) |
+| `qwen-0.5b` (Qwen2.5-0.5B-Instruct) | raif-qwen2.5-0.5b-lora | PASS | PASS | PASS | 15 vs 15 JSON → 0% |
+
+Token Δ above is on the single flat 3-field weather probe — the *least* favorable
+shape (token savings are shape- and tokenizer-driven; tables and arrays-of-objects
+are where RAIF wins, and the Qwen tokenizers save least). The probe is a
+**correctness** check, not a savings benchmark.
+
+Two model-specific notes, both handled inside the plugin (no client change):
+- **Qwen3** emits a leading reasoning preamble before the RAIF-G — sometimes a
+  well-formed `<think>…</think>`, sometimes bare closing tags (`</tool_call>…</think>`).
+  The parser strips everything up to the first `</think>` before decoding.
+- Each base family renders with different markers, so each ships its own
+  tools-ignoring chat template (`raif_vllm/chat_templates/`), derived from the
+  base's stock template by `scripts/make_chat_template.py` (training parity).
+
 This document is the GPU end-to-end (e2e) test-results artifact for the RAIF vLLM
 integration on RunPod. It has two parts: the **current** single-plugin run on
 vLLM 0.19 (the `general_plugins` entry-point model — tools, `response_format`,

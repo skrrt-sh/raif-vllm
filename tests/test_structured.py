@@ -18,6 +18,7 @@ from raif_vllm.structured import (
     is_structured_response_format,
     response_format_schema,
     response_format_to_raif,
+    strip_reasoning_prefix,
 )
 
 _WEATHER_RF = {
@@ -160,3 +161,44 @@ def test_decode_content_with_declaration_types_numbers():
 def test_decode_content_fails_closed():
     # Unrepairable input -> None (caller keeps raw output rather than emit junk).
     assert decode_content("\x00\x01 not raif at all", "city:s") is None
+
+
+# ── strip_reasoning_prefix (Qwen3 <think> handling) ──────────────────────────
+
+
+def test_strip_reasoning_prefix_removes_empty_think():
+    # Qwen3 instruct emits an empty <think></think> before the answer.
+    assert strip_reasoning_prefix("<think></think>\ncity=Oslo") == "city=Oslo"
+
+
+def test_strip_reasoning_prefix_removes_nonempty_think():
+    assert strip_reasoning_prefix("<think>\nweighing it\n</think>\ncity=Oslo") == "city=Oslo"
+
+
+def test_strip_reasoning_prefix_noop_without_think():
+    # Llama-3.2 / Qwen2.5 emit no think block — unchanged.
+    assert strip_reasoning_prefix("city=Oslo\nunit=celsius") == "city=Oslo\nunit=celsius"
+
+
+def test_strip_reasoning_prefix_no_closer_untouched():
+    # No </think> at all (Llama-3.2 / Qwen2.5, or a stray opener) -> untouched.
+    assert strip_reasoning_prefix("note=<think>") == "note=<think>"
+
+
+def test_strip_reasoning_prefix_bare_closer():
+    # Real Qwen3-4B output: bare closing tags (no opener), even a stray
+    # </tool_call>, before the RAIF-G — strip up to the first </think>.
+    raw = "</tool_call>\n\n</think>\n\ncity=Oslo\nunit=Celsius\ntemperature=12"
+    assert strip_reasoning_prefix(raw) == "city=Oslo\nunit=Celsius\ntemperature=12"
+
+
+def test_decode_content_strips_qwen3_think():
+    # The full structured path: leading <think></think> must not break decode.
+    out = decode_content("<think></think>\ncity=Oslo\ndays=5")
+    assert json.loads(out) == {"city": "Oslo", "days": 5}
+
+
+def test_decode_content_strips_qwen3_bare_closer():
+    # Real Qwen3-4B shape: bare </tool_call>…</think> preamble before RAIF-G.
+    out = decode_content("</tool_call>\n\n</think>\n\ncity=Oslo\ndays=5")
+    assert json.loads(out) == {"city": "Oslo", "days": 5}

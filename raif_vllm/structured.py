@@ -19,10 +19,30 @@ Reuses `raif.schema_bridge` (JSON Schema -> compact RAIF declaration) and
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from raif import decode
 from raif.schema_bridge import json_schema_to_raif_schema
+
+# A leading reasoning/scaffolding preamble some bases emit before the RAIF-G
+# answer. Qwen3 wraps its answer after a think block; depending on the served
+# prompt this surfaces as a well-formed `<think>…</think>` OR as bare closing
+# tags with no opener (`…</think>`, sometimes preceded by a stray `</tool_call>`).
+# The robust rule is to drop everything up to and including the FIRST `</think>`.
+# Models that emit no `</think>` (Llama-3.2, Qwen2.5) never match, so this is a
+# no-op for them. Kept in the pure layer so every decode path shares one rule.
+_THINK_PREFIX_RE = re.compile(r"^\s*.*?</think>\s*", re.DOTALL)
+
+
+def strip_reasoning_prefix(text: str) -> str:
+    """Drop a leading reasoning preamble ending at the first `</think>` (Qwen3).
+
+    No-op when there is no `</think>`, so it is safe on every model and path.
+    """
+    if not isinstance(text, str):
+        return text
+    return _THINK_PREFIX_RE.sub("", text, count=1)
 
 
 def to_plain(obj: Any) -> Any:
@@ -117,7 +137,7 @@ def decode_content(model_output: str, raif_decl: str | None = None) -> str | Non
     content. `raif_decl` is the RAIF declaration from `response_format_to_raif`
     (optional; schemaless decode still works, just with looser typing).
     """
-    result = decode(model_output, raif_decl or None)
+    result = decode(strip_reasoning_prefix(model_output), raif_decl or None)
     if not result["ok"]:
         return None
     return json.dumps(result["value"], separators=(",", ":"))

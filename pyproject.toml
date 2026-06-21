@@ -1,6 +1,6 @@
 [project]
 name = "raif-vllm"
-version = "0.1.0"
+version = "0.2.0"
 description = "One vLLM plugin for transparent RAIF token savings — install it and existing OpenAI clients get RAIF on tools & response_format with no proxy and no client changes."
 readme = "README.md"
 license = "Apache-2.0"
@@ -34,6 +34,11 @@ vllm = ["vllm>=0.19,<0.20"]
 
 [project.entry-points."vllm.general_plugins"]
 raif = "raif_vllm.plugin:register"
+
+[project.scripts]
+# Print the absolute path to a packaged tools-ignoring chat template, e.g.
+#   vllm serve ... --chat-template "$(raif-vllm-chat-template qwen-4b)"
+raif-vllm-chat-template = "raif_vllm.templates:_main"
 
 [project.urls]
 Repository = "https://github.com/skrrt-sh/raif-vllm"

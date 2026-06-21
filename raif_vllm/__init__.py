@@ -12,3 +12,8 @@ monkeypatch are the thin glue that wires vLLM's types to them.
 """
 
 from __future__ import annotations
+
+from .templates import available as available_chat_templates
+from .templates import template_path as chat_template
+
+__all__ = ["chat_template", "available_chat_templates"]
