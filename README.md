@@ -7,14 +7,12 @@ decodes it to JSON at the request/response boundary.
 
 ## Install
 
-`raif-vllm` is not yet on PyPI; install it from the repo (it pulls
-[`raif-format`](https://pypi.org/project/raif-format/) `>=0.6` from PyPI
-automatically):
-
 ```sh
-pip install "raif-vllm @ git+https://github.com/skrrt-sh/raif-vllm.git"
-# or, from a checkout:  pip install -e .
+pip install raif-vllm
 ```
+
+It pulls [`raif-format`](https://pypi.org/project/raif-format/) `>=0.6` from PyPI
+automatically.
 
 vLLM itself is provided by the serving host (it pins CUDA/torch); target
 **`vllm>=0.19,<0.20`** — v0.19 is the last CUDA-12 vLLM and carries the hooks the
