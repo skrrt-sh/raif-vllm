@@ -112,6 +112,19 @@ def test_none_request_is_plain():
     assert route_and_decode("hello", None) == (None, "hello")
 
 
+def test_qwen3_think_stripped_on_structured_path():
+    # Qwen3 prepends an empty <think></think>; structured decode must still work.
+    _, content = route_and_decode(
+        "<think></think>\ncity=Oslo\ndays=5", _req(response_format=_WEATHER_RF)
+    )
+    assert json.loads(content) == {"city": "Oslo", "days": 5}
+
+
+def test_qwen3_think_stripped_on_plain_passthrough():
+    # Plain chat passes content through, but the empty think artifact is removed.
+    assert route_and_decode("<think></think>\nHello", _req()) == (None, "Hello")
+
+
 # ── streaming terminator detection ───────────────────────────────────────────
 
 

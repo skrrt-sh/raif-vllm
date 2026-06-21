@@ -2,9 +2,14 @@
 # RAIF single-plugin smoke on a CUDA-12 GPU box (vLLM 0.19, entry-point model).
 #
 # Runs ON the GPU box, from a checkout of this repo. Installs vLLM 0.19 + the
-# plugin (which pulls raif-format>=0.6 from PyPI), serves the base model + the
-# RAIF LoRA with `VLLM_PLUGINS=raif`, waits for health, then runs the e2e client
-# across all five OpenAI paths.
+# plugin (which pulls raif-format>=0.6 from PyPI), serves a base model + its RAIF
+# LoRA with `VLLM_PLUGINS=raif`, waits for health, then runs the e2e client across
+# all five OpenAI paths.
+#
+# Works for every published RAIF adapter — pick one with MODEL=:
+#   MODEL=llama-3b   (default) unsloth/Llama-3.2-3B-Instruct  + raif-llama-3.2-3b-lora
+#   MODEL=qwen-0.5b           Qwen/Qwen2.5-0.5B-Instruct      + raif-qwen2.5-0.5b-lora
+#   MODEL=qwen-4b            Qwen/Qwen3-4B-Instruct-2507      + raif-qwen3-4b-lora
 #
 # v0.19.0 is the LAST CUDA-12 vLLM and carries every hook the plugin needs
 # (reasoning-parser content decode + the render_chat inject seam).
@@ -12,45 +17,82 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKROOT="${WORKROOT:-/workspace/raif}"
-BASE="${BASE:-unsloth/Llama-3.2-3B-Instruct}"
-ADAPTER="${ADAPTER:-skrrt-sh/raif-llama-3.2-3b-lora}"
+MODEL="${MODEL:-llama-3b}"
 PORT="${PORT:-8000}"
 PY="${PY:-python3.12}"
 VLLM_PIN="${VLLM_PIN:-vllm==0.19.0}"
 
-CHAT_TEMPLATE="$REPO_DIR/chat_templates/raif_llama32.jinja"
+# Per-model base / adapter / packaged-template name. Each base family renders with
+# different markers, so each has its own tools-ignoring template (resolved below).
+case "$MODEL" in
+  llama-3b)
+    BASE="${BASE:-unsloth/Llama-3.2-3B-Instruct}"
+    ADAPTER="${ADAPTER:-skrrt-sh/raif-llama-3.2-3b-lora}"
+    TPL_NAME="llama-3b" ;;
+  qwen-0.5b)
+    BASE="${BASE:-Qwen/Qwen2.5-0.5B-Instruct}"
+    ADAPTER="${ADAPTER:-skrrt-sh/raif-qwen2.5-0.5b-lora}"
+    TPL_NAME="qwen-0.5b" ;;
+  qwen-4b)
+    BASE="${BASE:-Qwen/Qwen3-4B-Instruct-2507}"
+    ADAPTER="${ADAPTER:-skrrt-sh/raif-qwen3-4b-lora}"
+    TPL_NAME="qwen-4b" ;;
+  *) echo "unknown MODEL=$MODEL (want llama-3b|qwen-0.5b|qwen-4b)" >&2; exit 2 ;;
+esac
+
 SMOKE="$REPO_DIR/examples/smoke_plugin.py"
 
 log() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 die() { printf '\n\033[1;31mFATAL: %s\033[0m\n' "$*" >&2; exit 1; }
 
-log "0. GPU + interpreter"
+log "0. GPU + interpreter  (MODEL=$MODEL)"
 command -v nvidia-smi >/dev/null || die "no nvidia-smi — not a CUDA GPU box"
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
 command -v "$PY" >/dev/null || die "interpreter '$PY' not found (set PY=)"
 "$PY" --version
-[ -f "$CHAT_TEMPLATE" ] || die "chat template not found at $CHAT_TEMPLATE"
 
 mkdir -p "$WORKROOT"
-export HF_HOME="${HF_HOME:-$WORKROOT/.hf-cache}"
+export HF_HOME="${HF_HOME:-/workspace/.hf-cache}"
 mkdir -p "$HF_HOME"
 
 log "1. Install vLLM 0.19 (CUDA-12) + this plugin (editable; pulls raif-format from PyPI) + clients"
 "$PY" -c 'import vllm' 2>/dev/null || "$PY" -m pip install -q "$VLLM_PIN"
-# vLLM's prometheus instrumentator crashes on starlette 1.x ("'_IncludedRouter'
-# object has no attribute 'path'") -> every /health returns 500 and the server
-# never becomes healthy. Pin fastapi 0.115.6, which constrains starlette <0.42
-# (routes still carry `.path`).
+# fastapi/vllm MUST be separate pip calls — a combined resolve is ResolutionImpossible.
+# Pin fastapi 0.115.6 (starlette <0.42) or vLLM's prometheus instrumentator 500s /health.
 "$PY" -m pip install -q openai "fastapi==0.115.6" -e "$REPO_DIR"
 "$PY" -c 'import vllm, raif, raif_vllm; print("vllm", vllm.__version__, "| raif", raif.__version__, "| raif_vllm OK")'
 
+log "1b. Resolve the packaged tools-ignoring chat template (generate it if missing)"
+# Templates ship inside the wheel; qwen ones are derived from the base's stock
+# template (parity-safe). Generate on first use, then resolve the packaged path.
+if ! CHAT_TEMPLATE="$("$PY" -m raif_vllm.templates "$TPL_NAME" 2>/dev/null)"; then
+  PKG_TPL_DIR="$("$PY" -c 'import raif_vllm,os;print(os.path.join(os.path.dirname(raif_vllm.__file__),"chat_templates"))')"
+  case "$MODEL" in
+    qwen-0.5b) OUT="$PKG_TPL_DIR/raif_qwen25.jinja" ;;
+    qwen-4b)   OUT="$PKG_TPL_DIR/raif_qwen3.jinja" ;;
+    *) die "no template for $MODEL and no generator mapping" ;;
+  esac
+  "$PY" "$REPO_DIR/scripts/make_chat_template.py" "$BASE" "$OUT"
+  CHAT_TEMPLATE="$("$PY" -m raif_vllm.templates "$TPL_NAME")"
+fi
+echo "chat template: $CHAT_TEMPLATE"
+[ -f "$CHAT_TEMPLATE" ] || die "chat template not found at $CHAT_TEMPLATE"
+
+log "1c. Detect the adapter's LoRA rank (max-lora-rank must be >= it)"
+MAX_RANK="$("$PY" - "$ADAPTER" <<'PYEOF'
+import json, sys
+from huggingface_hub import hf_hub_download
+cfg = json.load(open(hf_hub_download(sys.argv[1], "adapter_config.json")))
+r = int(cfg.get("r", 32))
+print(next(c for c in (8, 16, 32, 64, 128, 256) if c >= r))  # round up to a vLLM choice
+PYEOF
+)"
+echo "adapter r -> --max-lora-rank $MAX_RANK"
+
 log "2. Serve $BASE + LoRA '$ADAPTER' with the raif plugin (VLLM_PLUGINS=raif, port $PORT)"
-# The chat template strips OpenAI tool-def JSON (tools path parity). The plugin's
-# general_plugins entry point registers the parsers + installs the render_chat
-# inject hook; --reasoning-parser raif lights up the response_format decode path.
 VLLM_PLUGINS=raif "$PY" -m vllm.entrypoints.openai.api_server --model "$BASE" \
   --enable-lora --lora-modules "raif=$ADAPTER" \
-  --max-lora-rank 32 --max-model-len 8192 --enforce-eager \
+  --max-lora-rank "$MAX_RANK" --max-model-len 8192 --enforce-eager \
   --chat-template "$CHAT_TEMPLATE" \
   --reasoning-parser raif \
   --enable-auto-tool-choice --tool-call-parser raif \
@@ -58,8 +100,8 @@ VLLM_PLUGINS=raif "$PY" -m vllm.entrypoints.openai.api_server --model "$BASE" \
 SERVER=$!
 trap 'kill $SERVER 2>/dev/null || true' EXIT
 
-log "3. Wait for health (up to ~5 min for model load)"
-for _ in $(seq 1 100); do
+log "3. Wait for health (up to ~6 min for model load)"
+for _ in $(seq 1 120); do
   curl -sf "http://localhost:$PORT/health" >/dev/null 2>&1 && break
   kill -0 $SERVER 2>/dev/null || die "vllm exited early — see $WORKROOT/vllm-serve.log"
   sleep 3
@@ -76,11 +118,13 @@ set +e
 SMOKE_RC=$?
 set -e
 
-log "OVERALL"
+log "OVERALL ($MODEL)"
 if [ "$SMOKE_RC" -eq 0 ]; then
-  printf '\033[1;32mOVERALL: PASS — RAIF single plugin verified (tools + response_format + plain).\033[0m\n'
+  printf '\033[1;32mOVERALL: PASS — RAIF single plugin verified on %s.\033[0m\n' "$MODEL"
   printf '(server log: %s)\n' "$WORKROOT/vllm-serve.log"
+  echo "EXITCODE=0"
   exit 0
 fi
-printf '\033[1;31mOVERALL: FAIL (smoke rc=%d) — see %s\033[0m\n' "$SMOKE_RC" "$WORKROOT/vllm-serve.log"
+printf '\033[1;31mOVERALL: FAIL (%s, smoke rc=%d) — see %s\033[0m\n' "$MODEL" "$SMOKE_RC" "$WORKROOT/vllm-serve.log"
+echo "EXITCODE=$SMOKE_RC"
 exit 1

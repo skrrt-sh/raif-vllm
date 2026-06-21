@@ -30,6 +30,7 @@ from .structured import (
     classify_request,
     decode_content,
     response_format_to_raif,
+    strip_reasoning_prefix,
     to_plain,
 )
 
@@ -60,6 +61,11 @@ def route_and_decode(model_output: str, request: Any) -> tuple[None, str]:
     request"). Otherwise fall back to `response_format` (pre-inject / dict
     callers that did not pass through the monkeypatch).
     """
+    # Strip a leading <think></think> (Qwen3) once, up front, so every branch —
+    # structured decode, plain passthrough, and the content handed to the tool
+    # parser downstream — sees think-free RAIF-G. No-op for Llama/Qwen2.5.
+    model_output = strip_reasoning_prefix(model_output)
+
     xargs = to_plain(_get(request, "vllm_xargs"))
     if isinstance(xargs, dict) and "raif_decl" in xargs:
         decl = xargs["raif_decl"] or None
