@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.jpg" alt="RAIF" width="640">
+  <img src="https://raw.githubusercontent.com/skrrt-sh/raif-vllm/main/assets/banner.jpg" alt="RAIF" width="640">
 </p>
 
 <h1 align="center">raif-vllm</h1>
