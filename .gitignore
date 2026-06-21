@@ -5,3 +5,9 @@ __pycache__/
 .venv/
 dist/
 *.egg-info/
+
+# uv lockfile — this is a published library; CI uses `uv build`, not the lock
+uv.lock
+
+# macOS
+.DS_Store
