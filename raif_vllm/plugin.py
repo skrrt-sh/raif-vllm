@@ -31,7 +31,17 @@ import logging
 
 from .inject import prepare_chat_request
 
-logger = logging.getLogger("raif_vllm")
+# Prefer vLLM's logger factory so the registration markers below actually surface
+# in the server log under vLLM's logging config. A bare logging.getLogger() leaves
+# the "raif_vllm" logger inheriting root@WARNING, so these INFO lines were silently
+# dropped — the smoke script's plugin-load grep then warned even on a clean load.
+# Fall back to the stdlib logger when vLLM is absent, keeping the module import-safe.
+try:
+    from vllm.logger import init_logger
+
+    logger = init_logger("raif_vllm")
+except Exception:  # pragma: no cover - vLLM not installed / logger API drift
+    logger = logging.getLogger("raif_vllm")
 
 # Pre-template inject seams to wrap, in priority order: (module, class, method).
 # The chat prompt is built here from `request.messages` BEFORE templating, so a

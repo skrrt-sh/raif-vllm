@@ -64,6 +64,15 @@ reasoning-parser decode + `render_chat` inject hooks the plugin needs).
 | `fastapi==0.115.6` | pins starlette `<0.42`; vLLM's prometheus instrumentator breaks on starlette 1.x → `'_IncludedRouter' object has no attribute 'path'` (server never becomes healthy). Expect loud pip "dependency conflict" lines about sse-starlette / prometheus-fastapi-instrumentator wanting newer starlette — they are benign; the pin is deliberate. |
 | use `python3.12` | the image's `python3` is an empty 3.10; torch/vllm live under 3.12. |
 
+> **Install order — `vllm` and `fastapi==0.115.6` must be SEPARATE `pip install`
+> calls.** Resolving them together (`pip install vllm==0.19.0 fastapi==0.115.6 …`)
+> is **`ResolutionImpossible`**: vLLM declares a newer-fastapi range that the
+> `0.115.6` pin contradicts, and a single resolution can't satisfy both. Install
+> vLLM first in its own call, *then* `pip install openai fastapi==0.115.6` as a
+> second call — across transactions pip applies the downgrade with only a warning.
+> `scripts/serve_smoke.sh` already orders it this way; any from-scratch script must
+> too.
+
 ## 5. Run the e2e
 
 `scripts/serve_smoke.sh` is self-contained — it just needs **this** repo present under
