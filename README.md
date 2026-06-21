@@ -27,6 +27,12 @@ RAIF-G; the plugin decodes it back to JSON at the request/response boundary, so 
 stock OpenAI client gets RAIF on `tools` and `response_format` transparently. No
 proxy, no fork — one `pip install` and an entry point.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/skrrt-sh/raif-vllm/main/assets/demo-vllm.gif" alt="RAIF × vLLM demo — the round trip by levels: a stock OpenAI client sends a normal request, the plugin injects a compact schema cue, the model emits RAIF-G on the wire (fewer tokens), and the plugin decodes it back to JSON at the boundary — the client never sees RAIF" width="820">
+</p>
+
+<p align="center"><sub>The integration by levels — client → inject → RAIF-G on the wire → decode → clean JSON. Driven by the real plugin helpers (no GPU); rebuild with <code>vhs assets/demo-vllm.tape</code>.</sub></p>
+
 ## Install
 
 ```sh
@@ -152,6 +158,7 @@ raif_vllm/templates.py        chat-template resolver (raif-vllm-chat-template CL
 scripts/serve_smoke.sh        end-to-end GPU smoke (MODEL=llama-3b|qwen-0.5b|qwen-4b)
 scripts/make_chat_template.py derive a tools-ignoring template from a base's stock one
 examples/smoke_plugin.py      the e2e client (plain · tools · response_format · streaming)
+examples/demo_vllm.py         the animated terminal demo (assets/demo-vllm.tape records it)
 docs/                         serving guide, e2e results, RunPod runbook
 tests/                        unit tests for the parsers + inject hook
 ```
